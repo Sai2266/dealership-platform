@@ -18,6 +18,7 @@ class Document(db.Model):
     file_size = db.Column(db.Integer)
     file_path = db.Column(db.String(500))
     status = db.Column(db.String(20), default='pending')
+    notes = db.Column(db.Text)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):

@@ -16,32 +16,25 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 def verify_auth():
     """Verify JWT and return user_id"""
     try:
-        # Debug logging
-        auth_header = request.headers.get('Authorization')
-        print(f"\n[JWT] Authorization: {auth_header[:50] if auth_header else 'MISSING'}...")
-        print(f"[JWT] Headers: {list(request.headers.keys())}")
-        
         verify_jwt_in_request()
         user_id = get_jwt_identity()
         user_id = int(user_id)
-        print(f"[JWT] ✅ User verified: {user_id}\n")
         return user_id, None
-    except Exception as e:
-        print(f"[JWT] ❌ Error: {type(e).__name__}: {str(e)}\n")
+    except Exception:
         return None, (jsonify({'error': 'Unauthorized'}), 401)
 
 def handle_options():
-    """Handle CORS preflight OPTIONS request"""
+    """Handle CORS preflight"""
     return '', 200
 
 def get_user_folder(user_id):
-    """Get or create user upload folder"""
+    """Create user upload folder"""
     folder = os.path.join(UPLOAD_FOLDER, f'user_{user_id}')
     os.makedirs(folder, exist_ok=True)
     return folder
 
 def validate_file(file):
-    """Validate file and return (is_valid, error_message, ext, size)"""
+    """Validate file (is_valid, error, ext, size)"""
     if not file.filename or '.' not in file.filename:
         return False, 'Invalid filename', None, None
     
@@ -59,13 +52,13 @@ def validate_file(file):
     return True, None, ext, size
 
 def check_authorization(doc, user_id):
-    """Check if document belongs to user"""
+    """Check document ownership"""
     if not doc or doc.uploaded_by != user_id:
         return False, 'Unauthorized', 403
     return True, None, 200
 
 def check_file_exists(file_path):
-    """Check if file exists on disk"""
+    """Check if file exists"""
     if not os.path.exists(file_path):
         return False, 'File not found', 404
     return True, None, 200
@@ -82,6 +75,7 @@ def upload():
     
     try:
         files = request.files.getlist('files')
+        
         if not files:
             return jsonify({'error': 'No files'}), 400
         
@@ -101,18 +95,34 @@ def upload():
                 filepath = os.path.join(user_folder, filename)
                 file.save(filepath)
                 
-                doc = Document(uploaded_by=user_id, filename=filename, original_filename=file.filename,
-                               file_type=ext, file_size=size, file_path=filepath, status='pending')
+                doc = Document(
+                    uploaded_by=user_id,
+                    filename=filename,
+                    original_filename=file.filename,
+                    file_type=ext,
+                    file_size=size,
+                    file_path=filepath,
+                    status='pending'
+                )
                 db.session.add(doc)
                 db.session.commit()
                 
-                uploaded.append({'filename': file.filename, 'size': size, 'id': doc.id})
+                uploaded.append({
+                    'filename': file.filename,
+                    'size': size,
+                    'id': doc.id
+                })
+                
             except Exception as e:
                 errors.append(str(e))
         
         status_code = 200 if uploaded else 400
-        return jsonify({'success': bool(uploaded), 'message': f'Uploaded {len(uploaded)} file(s)',
-                       'uploaded': uploaded, 'errors': errors if errors else None}), status_code
+        return jsonify({
+            'success': bool(uploaded),
+            'message': f'Uploaded {len(uploaded)} file(s)',
+            'uploaded': uploaded,
+            'errors': errors if errors else None
+        }), status_code
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -120,7 +130,7 @@ def upload():
 @bp.route('/', methods=['GET', 'OPTIONS'])
 @bp.route('', methods=['GET', 'OPTIONS'])
 def list_documents():
-    """Get all documents for user"""
+    """Get all documents"""
     if request.method == 'OPTIONS':
         return handle_options()
     
@@ -130,7 +140,11 @@ def list_documents():
     
     try:
         docs = Document.query.filter_by(uploaded_by=user_id).all()
-        return jsonify({'success': True, 'documents': [doc.to_dict() for doc in docs]}), 200
+        return jsonify({
+            'success': True,
+            'documents': [doc.to_dict() for doc in docs]
+        }), 200
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -155,7 +169,12 @@ def download(doc_id):
         if not exists:
             return jsonify({'error': error}), code
         
-        return send_file(doc.file_path, as_attachment=True, download_name=doc.original_filename)
+        return send_file(
+            doc.file_path,
+            as_attachment=True,
+            download_name=doc.original_filename
+        )
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -181,7 +200,48 @@ def delete(doc_id):
         
         db.session.delete(doc)
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Deleted'}), 200
+        
+        return jsonify({
+            'success': True,
+            'message': 'Deleted'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/<int:doc_id>/notes', methods=['GET', 'POST', 'OPTIONS'])
+def manage_notes(doc_id):
+    """Get or update document notes"""
+    if request.method == 'OPTIONS':
+        return handle_options()
+    
+    user_id, auth_error = verify_auth()
+    if auth_error:
+        return auth_error
+    
+    try:
+        doc = Document.query.get(doc_id)
+        
+        if not doc or doc.uploaded_by != user_id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        if request.method == 'GET':
+            return jsonify({
+                'success': True,
+                'id': doc.id,
+                'filename': doc.original_filename,
+                'file_type': doc.file_type,
+                'notes': doc.notes or ''
+            }), 200
+        
+        # POST - Update notes
+        data = request.get_json()
+        doc.notes = data.get('notes', '')
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Notes saved'}), 200
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
