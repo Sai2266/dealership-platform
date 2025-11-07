@@ -1,89 +1,140 @@
-from flask import Blueprint, request, jsonify
-from app import db
-from app.models import User
-from werkzeug.security import generate_password_hash, check_password_hash
-from flask_jwt_extended import create_access_token
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Container, Paper, TextField, Button, Typography, Box, Alert, Select, MenuItem, Tabs, Tab } from '@mui/material';
 
-bp = Blueprint('auth', __name__)
+const API_URL = 'http://localhost:5000/api/auth';
 
-def validate_input(data, required_fields):
-    if not data or not all(data.get(field) for field in required_fields):
-        return False
-    return True
+const LoginForm = ({ email, setEmail, password, setPassword, loading, onSubmit }) => (
+  <Box component="form" onSubmit={onSubmit}>
+    <Typography variant="h5" sx={{ mb: 2 }}>Login</Typography>
+    <TextField fullWidth label="Email" value={email} onChange={(e) => setEmail(e.target.value)} sx={{ mb: 2 }} required />
+    <TextField fullWidth label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} sx={{ mb: 2 }} required />
+    <Button fullWidth variant="contained" type="submit" disabled={loading}>
+      {loading ? 'Logging in...' : 'Login'}
+    </Button>
+  </Box>
+);
 
-def handle_error(error_msg, status_code=500):
-    return jsonify({'error': error_msg}), status_code
+const RegisterForm = ({ email, setEmail, password, setPassword, dealership_name, setDealershipName, role, setRole, loading, onSubmit }) => (
+  <Box component="form" onSubmit={onSubmit}>
+    <Typography variant="h5" sx={{ mb: 2 }}>Register</Typography>
+    <TextField fullWidth label="Email" value={email} onChange={(e) => setEmail(e.target.value)} sx={{ mb: 2 }} required />
+    <TextField fullWidth label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} sx={{ mb: 2 }} required />
+    <TextField fullWidth label="Dealership Name" value={dealership_name} onChange={(e) => setDealershipName(e.target.value)} sx={{ mb: 2 }} required />
+    <Select fullWidth value={role} onChange={(e) => setRole(e.target.value)} sx={{ mb: 2 }}>
+      <MenuItem value="dealer">Dealer</MenuItem>
+      <MenuItem value="admin">Admin</MenuItem>
+    </Select>
+    <Button fullWidth variant="contained" type="submit" disabled={loading}>
+      {loading ? 'Registering...' : 'Register'}
+    </Button>
+  </Box>
+);
 
-@bp.route('/register', methods=['POST'])
-def register():
-    try:
-        data = request.get_json()
-        if not validate_input(data, ['email', 'password']):
-            return handle_error('Email and password required', 400)
-        if User.query.filter_by(email=data['email']).first():
-            return handle_error('Email already exists', 400)
-        
-        user = User(
-            email=data['email'],
-            password=generate_password_hash(data['password']),
-            role=data.get('role', 'dealer'),
-            dealership_name=data.get('dealership_name', 'Unknown')
-        )
-        db.session.add(user)
-        db.session.commit()
-        print(f"✅ User registered: {user.email} (ID: {user.id})")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Registration successful',
-            'user_id': user.id
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        print(f"❌ Register error: {str(e)}")
-        return handle_error(str(e))
+export default function AuthPage({ setIsLoggedIn }) {
+  const [tab, setTab] = useState(0);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [dealership_name, setDealershipName] = useState('');
+  const [role, setRole] = useState('dealer');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-@bp.route('/login', methods=['POST'])
-def login():
-    try:
-        data = request.get_json()
-        print(f"\n=== LOGIN START ===")
-        print(f"Email: {data.get('email')}")
-        
-        if not validate_input(data, ['email', 'password']):
-            return handle_error('Email and password required', 400)
-        
-        user = User.query.filter_by(email=data['email']).first()
-        
-        if not user:
-            print(f"❌ User not found")
-            return handle_error('Invalid email or password', 401)
-        
-        if not check_password_hash(user.password, data['password']):
-            print(f"❌ Wrong password")
-            return handle_error('Invalid email or password', 401)
-        
-        # Create token WITHOUT expiry - never expires!
-        token = create_access_token(identity=str(user.id))
-        
-        print(f"✅ Token created for user: {user.id}")
-        print(f"✅ Token expires: NEVER (no expiry)")
-        print(f"✅ LOGIN SUCCESS\n")
-        
-        return jsonify({
-            'success': True,
-            'token': token,
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'role': user.role,
-                'dealership_name': user.dealership_name
-            }
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ Login error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return handle_error(str(e))
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const res = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        localStorage.setItem('access_token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsLoggedIn(true);
+        navigate('/dashboard');
+      } else {
+        setError(data.error || 'Login failed');
+      }
+    } catch (err) {
+      setError('Connection error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const res = await fetch(`${API_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, dealership_name, role })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setEmail('');
+        setPassword('');
+        setDealershipName('');
+        setError('Account created! Please login.');
+        setTab(0);
+      } else {
+        setError(data.error || 'Registration failed');
+      }
+    } catch (err) {
+      setError('Connection error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box sx={{
+      minHeight: '100vh',
+      backgroundImage: 'url(/Rolls.jpg)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        zIndex: 0
+      }
+    }}>
+      <Container maxWidth="sm" sx={{ position: 'relative', zIndex: 1 }}>
+        <Paper sx={{ p: 4, borderRadius: 2, boxShadow: 3 }}>
+          <Tabs value={tab} onChange={(e, newTab) => setTab(newTab)} sx={{ mb: 3 }}>
+            <Tab label="Login" />
+            <Tab label="Register" />
+          </Tabs>
+
+          {error && <Alert severity={tab === 0 ? 'error' : 'success'} sx={{ mb: 2 }}>{error}</Alert>}
+
+          {tab === 0 && <LoginForm email={email} setEmail={setEmail} password={password} setPassword={setPassword} loading={loading} onSubmit={handleLogin} />}
+
+          {tab === 1 && <RegisterForm email={email} setEmail={setEmail} password={password} setPassword={setPassword} dealership_name={dealership_name} setDealershipName={setDealershipName} role={role} setRole={setRole} loading={loading} onSubmit={handleRegister} />}
+        </Paper>
+      </Container>
+    </Box>
+  );
+}
