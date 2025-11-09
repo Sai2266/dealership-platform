@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Container, Paper, Button, Typography, Box, AppBar, Toolbar,
-  Table, TableBody, TableCell, TableHead, TableRow, CircularProgress, Alert,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField
-} from '@mui/material';
+import { Container, Paper, Button, Typography, Box, AppBar, Toolbar, Table, TableBody, TableCell, TableHead, TableRow, CircularProgress, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material';
 
 const API_URL = 'http://localhost:5000/api/documents';
+
+const DataRow = ({ label, value }) => (
+  <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid #eee' }}>
+    <Typography sx={{ fontWeight: 'bold', color: '#666' }}>{label}:</Typography>
+    <Typography>{value || 'N/A'}</Typography>
+  </Box>
+);
 
 export default function DocumentsList() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedDoc, setSelectedDoc] = useState(null);
+  const [ocrData, setOcrData] = useState(null);
   const [notes, setNotes] = useState('');
   const navigate = useNavigate();
 
@@ -23,10 +27,7 @@ export default function DocumentsList() {
   const loadDocuments = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const res = await fetch(API_URL, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(API_URL, { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } });
 
       if (res.ok) {
         const data = await res.json();
@@ -46,17 +47,18 @@ export default function DocumentsList() {
   const handleView = async (doc) => {
     try {
       const token = localStorage.getItem('access_token');
-      const res = await fetch(`${API_URL}/${doc.id}/notes`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(`${API_URL}/${doc.id}/notes`, { headers: { 'Authorization': `Bearer ${token}` } });
 
       if (res.ok) {
         const data = await res.json();
         setSelectedDoc(doc);
-        setNotes(data.notes);
+        setOcrData(data);
+        setNotes(data.notes || '');
+      } else {
+        setError('Error loading document');
       }
     } catch (err) {
-      alert('Error loading document');
+      setError('Error loading document');
     }
   };
 
@@ -65,29 +67,26 @@ export default function DocumentsList() {
       const token = localStorage.getItem('access_token');
       const res = await fetch(`${API_URL}/${selectedDoc.id}/notes`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes })
       });
 
       if (res.ok) {
-        alert('Notes saved!');
+        setError('Notes saved!');
         setSelectedDoc(null);
         loadDocuments();
+      } else {
+        setError('Error saving notes');
       }
     } catch (err) {
-      alert('Error saving notes');
+      setError('Error saving notes');
     }
   };
 
   const handleDownload = async (docId, filename) => {
     try {
       const token = localStorage.getItem('access_token');
-      const res = await fetch(`${API_URL}/${docId}/download`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(`${API_URL}/${docId}/download`, { headers: { 'Authorization': `Bearer ${token}` } });
 
       if (res.ok) {
         const blob = await res.blob();
@@ -96,9 +95,12 @@ export default function DocumentsList() {
         link.href = url;
         link.download = filename;
         link.click();
+        window.URL.revokeObjectURL(url);
+      } else {
+        setError('Download error');
       }
     } catch (err) {
-      alert('Download error');
+      setError('Download error');
     }
   };
 
@@ -107,17 +109,16 @@ export default function DocumentsList() {
 
     try {
       const token = localStorage.getItem('access_token');
-      const res = await fetch(`${API_URL}/${docId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(`${API_URL}/${docId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
 
       if (res.ok) {
-        alert('Deleted');
+        setError('Deleted');
         loadDocuments();
+      } else {
+        setError('Delete error');
       }
     } catch (err) {
-      alert('Delete error');
+      setError('Delete error');
     }
   };
 
@@ -177,18 +178,23 @@ export default function DocumentsList() {
         )}
       </Container>
 
-      {/* View/Edit Dialog */}
       <Dialog open={!!selectedDoc} onClose={() => setSelectedDoc(null)} maxWidth="md" fullWidth>
         <DialogTitle>{selectedDoc?.filename}</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            multiline
-            rows={8}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Add notes or annotations..."
-          />
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: '#1976d2' }}>Extracted Data</Typography>
+            <DataRow label="VIN" value={ocrData?.vin} />
+            <DataRow label="Buyer Name" value={ocrData?.buyer_name} />
+            <DataRow label="Seller Name" value={ocrData?.seller_name} />
+            <DataRow label="Sale Date" value={ocrData?.sale_date} />
+            <DataRow label="Sale Amount" value={ocrData?.sale_amount} />
+            <DataRow label="Odometer Reading" value={ocrData?.odometer_reading} />
+            <DataRow label="Document Type" value={ocrData?.document_type} />
+            <DataRow label="Status" value={ocrData?.status} />
+          </Box>
+
+          <Typography variant="h6" sx={{ mb: 2, color: '#1976d2' }}>Notes</Typography>
+          <TextField fullWidth multiline rows={6} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add notes or annotations..." />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelectedDoc(null)}>Close</Button>

@@ -12,6 +12,14 @@ db = SQLAlchemy()
 login_manager = LoginManager()
 jwt = JWTManager()
 
+# Set Google Cloud credentials - absolute path
+CREDENTIALS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'google-vision-key.json')
+if os.path.exists(CREDENTIALS_PATH):
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = CREDENTIALS_PATH
+    print(f"✅ Google Cloud credentials loaded: {CREDENTIALS_PATH}")
+else:
+    print(f"⚠️ Warning: Credentials file not found at {CREDENTIALS_PATH}")
+
 def create_app():
     """Create and configure Flask application"""
     app = Flask(__name__)

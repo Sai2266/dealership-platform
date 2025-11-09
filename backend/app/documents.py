@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from app import db
 from app.models import Document
+from app.ocr import process_document
 import os
 from datetime import datetime
 
@@ -11,15 +12,13 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__f
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_TYPES = {'pdf', 'jpg', 'jpeg', 'png'}
-MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_FILE_SIZE = 100 * 1024 * 1024
 
 def verify_auth():
     """Verify JWT and return user_id"""
     try:
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
-        user_id = int(user_id)
-        return user_id, None
+        return int(get_jwt_identity()), None
     except Exception:
         return None, (jsonify({'error': 'Unauthorized'}), 401)
 
@@ -62,6 +61,29 @@ def check_file_exists(file_path):
     if not os.path.exists(file_path):
         return False, 'File not found', 404
     return True, None, 200
+
+def process_ocr(doc, filepath):
+    """Process document with OCR"""
+    try:
+        ocr_result = process_document(filepath)
+        
+        if ocr_result['success']:
+            doc.status = 'completed'
+            doc.extracted_text = ocr_result['extracted_text']
+            doc.vin = ocr_result['extracted_data'].get('vin')
+            doc.buyer_name = ocr_result['extracted_data'].get('buyer_name')
+            doc.seller_name = ocr_result['extracted_data'].get('seller_name')
+            doc.sale_date = ocr_result['extracted_data'].get('sale_date')
+            doc.sale_amount = ocr_result['extracted_data'].get('sale_amount')
+            doc.odometer_reading = ocr_result['extracted_data'].get('odometer_reading')
+            doc.document_type = ocr_result['extracted_data'].get('document_type')
+        else:
+            doc.status = 'failed'
+        
+        db.session.commit()
+    except Exception as e:
+        doc.status = 'failed'
+        db.session.commit()
 
 @bp.route('/upload', methods=['POST', 'OPTIONS'])
 def upload():
@@ -106,6 +128,8 @@ def upload():
                 )
                 db.session.add(doc)
                 db.session.commit()
+                
+                process_ocr(doc, filepath)
                 
                 uploaded.append({
                     'filename': file.filename,
@@ -232,10 +256,17 @@ def manage_notes(doc_id):
                 'id': doc.id,
                 'filename': doc.original_filename,
                 'file_type': doc.file_type,
-                'notes': doc.notes or ''
+                'notes': doc.notes or '',
+                'vin': doc.vin,
+                'buyer_name': doc.buyer_name,
+                'seller_name': doc.seller_name,
+                'sale_date': doc.sale_date,
+                'sale_amount': doc.sale_amount,
+                'odometer_reading': doc.odometer_reading,
+                'document_type': doc.document_type,
+                'status': doc.status
             }), 200
         
-        # POST - Update notes
         data = request.get_json()
         doc.notes = data.get('notes', '')
         db.session.commit()
